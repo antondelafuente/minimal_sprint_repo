@@ -110,17 +110,13 @@ for r in results:
 
 ## Key Methods
 
-### `generate_with_prefill(problem, prefill, reasoning_level="low", ...)`
-Generate a single completion with prefilled reasoning.
+- **`generate_with_prefill(problem, prefill, reasoning_level="low", ...)`** - Generate a single completion with prefilled reasoning.
 
-### `generate_batch_with_prefill(problem, prefill, n=100, ...)`
-Generate N completions from the same prefill point (efficient batched version).
+- **`generate_batch_with_prefill(problem, prefill, n=100, ...)`** - Generate N completions from the same prefill point (efficient batched version).
 
-### `resample_from_position(problem, sentences, position, n=100, ...)`
-Convenience method: prefill up to sentence position K, then generate N continuations.
+- **`resample_from_position(problem, sentences, position, n=100, ...)`** - Convenience method: prefill up to sentence position K, then generate N continuations.
 
-### `set_alpha(new_alpha)`
-Change steering strength without reloading the model.
+- **`set_alpha(new_alpha)`** - Change steering strength without reloading the model.
 
 ## Setup
 
