@@ -1,384 +1,149 @@
-# Steered Model Usage Guide
+# Steered Model for Thought Anchors
 
-## Quick Reference for Claude Code
+Activation steering tools for language models, with support for **prefill-based steering** for Thought Anchors experiments.
 
-This guide explains how to use the `SteeredModel` class for activation steering experiments.
+## What's in this repo
 
-## Quick Start (For Evals)
+- `steered_model.py` - Basic steered model (steers all generated tokens)
+- `prefill_steered_model.py` - **Prefill-based steering** (the main focus)
+- `steered_model_base.py` - Shared base class
+- `steering_vectors/` - Pre-computed steering vectors
 
-```python
-from steered_model import SteeredModel
+## The Key Idea: PrefillSteeredModel
 
-# 1. Initialize
-steerer = SteeredModel(
-    model_path="/workspace/gpt-oss-20b",
-    steering_vector_path="steering_vectors/steering_vectors_normalized.pt",
-    layer=None,  # Use all layers (multi-layer steering)
-    alpha=0  # No steering
-)
+**Regular steering**: You give the model a question, it generates a full chain-of-thought (CoT), and steering affects ALL generated tokens.
 
-# 2. Ask questions
-result = steerer.ask("What is 2+2?", reasoning_level="low")
-print(result['reasoning'])
-print(result['final_answer'])
+**Prefill-based steering**: You give the model a question PLUS the first K sentences already written (the "prefill"). The model continues from there, and steering is applied ONLY to the continuation, not the prefilled part.
 
-# 3. Or batch for statistics
-results = steerer.ask_batch("What is 2+2?", n=50, reasoning_level="low")
+### Why This Matters - Thought Anchors
 
-# 4. Clean up
-steerer.close()
-```
+This lets you test: *"What if the model reasoned correctly up to sentence K, then we apply steering from there?"*
 
-That's it! No need to understand Harmony format or prompts - just ask questions and evaluate responses.
+Example scenario:
+1. Baseline CoT: "Sentence 1. Sentence 2. Sentence 3. Sentence 4."
+2. You **anchor** sentences 1-2 (lock them in as the prefill)
+3. Generate sentences 3+ with steering applied
+4. Resample 100 times to see how steering affects completion from that specific point
 
----
+This is way more precise than regular steering because you're isolating **which part** of the reasoning chain is affected.
 
-## Environment Setup
-
-### Required Dependencies
-
-```bash
-# Install transformers and accelerate
-pip install transformers accelerate --break-system-packages
-
-# PyTorch is already installed (2.8.0+cu128)
-```
-
-**That's it!** No need to install torch separately.
-
-### Verify Installation
-
-```bash
-python -c "from steered_model import SteeredModel; print('✓ Import successful')"
-```
-
-## File Locations
-
-- **SteeredModel class**: `steered_model.py`
-- **PrefillSteeredModel class**: `prefill_steered_model.py`
-- **Base class**: `steered_model_base.py`
-- **Steering vectors**: `steering_vectors/` (contains normalized multi-layer and single-layer vectors)
-- **Model**: `/workspace/gpt-oss-20b`
-
-**Note**: This repository contains all necessary files for steered model experiments.
-
-## Basic Usage
-
-### 1. Initialize Once
+## Quick Start
 
 ```python
-from pathlib import Path
-from steered_model import SteeredModel
+from prefill_steered_model import PrefillSteeredModel
 
-steerer = SteeredModel(
-    model_path="/workspace/gpt-oss-20b",
-    steering_vector_path="steering_vectors/steering_vectors_normalized.pt",
-    layer=None,  # Use all layers; set to 14 to use only layer 14
-    alpha=0.0  # Starting alpha
-)
-```
-
-**Note**: Initialization loads the model (~27.5 GB GPU memory) and takes ~40 seconds.
-
-### 2. Ask Questions (Recommended - Simple Interface)
-
-#### Single Question
-
-```python
-# Just ask a question - no Harmony format needed!
-result = steerer.ask(
-    question="What is 2+2?",
-    reasoning_level="low",  # "minimal", "low", "medium", or "high"
-    max_tokens=3000,
-    temperature=0.8
-)
-
-# Result dictionary contains:
-print(result['reasoning'])      # The model's reasoning (clean text)
-print(result['final_answer'])   # The final answer (clean text)
-print(result['text'])           # Full raw output (if needed)
-print(result['n_tokens'])       # Number of tokens generated
-print(result['hit_eos'])        # True if ended naturally
-print(result['is_truncated'])   # True if hit max_tokens
-```
-
-#### Batch Questions (For Statistics)
-
-```python
-# Ask the same question N times
-results = steerer.ask_batch(
-    question="What is 2+2?",
-    n=50,  # Number of completions
-    reasoning_level="low",
-    max_tokens=3000,
-    temperature=0.8
-)
-
-# Each result has: reasoning, final_answer, n_tokens, hit_eos, is_truncated
-for r in results:
-    print(r['reasoning'])
-    print(r['final_answer'])
-```
-
-### 3. Change Steering Strength
-
-```python
-# Change alpha without reloading model
-steerer.set_alpha(100.0)  # Steer toward cheating
-steerer.set_alpha(-100.0)  # Steer away from cheating
-```
-
-### 4. Cleanup
-
-```python
-steerer.close()  # Remove hook and cleanup
-```
-
----
-
-## Advanced Usage (Low-Level Interface)
-
-If you need full control over the Harmony prompt format:
-
-### Generate with Custom Prompt
-
-```python
-# Build custom Harmony prompt
-prompt = steerer._build_harmony_prompt(
-    problem="What is 2+2?",
-    prefill="Let me think.",
-    reasoning_level="low"
-)
-
-# Generate
-result = steerer.generate(prompt, max_tokens=3000, temperature=0.8)
-
-# Or batch
-results = steerer.generate_batch(prompt, n=50, max_tokens=3000, temperature=0.8)
-```
-
-**Note**: Most users should use `ask()` / `ask_batch()` instead. Only use this if you need custom prompt control.
-
-## Common Workflows
-
-### Workflow 1: Test Different Alphas on Same Question
-
-```python
-# Initialize once
-steerer = SteeredModel(
+# Initialize
+steerer = PrefillSteeredModel(
     model_path="/workspace/gpt-oss-20b",
     steering_vector_path="steering_vectors/steering_vectors_normalized.pt",
     layer=None,  # Multi-layer steering
-    alpha=0
+    alpha=100    # Steering strength
 )
 
-question = "What is 2+2?"
+# Generate with prefilled reasoning
+result = steerer.generate_with_prefill(
+    problem="What is 2+2?",
+    prefill="Let me think step by step. First,",  # Lock in this start
+    reasoning_level="low"
+)
 
-for alpha in [-200, -100, 0, 100, 200]:
-    steerer.set_alpha(alpha)
-    results = steerer.ask_batch(question, n=50, reasoning_level="low")
+print(result['reasoning'])      # Full CoT (prefill + continuation)
+print(result['continuation'])   # Just what was generated
+print(result['final_answer'])
 
-    # Analyze results
-    print(f"Alpha {alpha}: ...")
-
+# Clean up
 steerer.close()
 ```
 
-### Workflow 2: Test Multiple Questions with Fixed Alpha
+## Thought Anchors Workflow
+
+Resample from a specific sentence position:
 
 ```python
-steerer = SteeredModel(..., alpha=100)
-
-questions = [
-    "What is 2+2?",
-    "How do I solve this problem?",
-    "Write a function to compute X"
+# You have a baseline CoT broken into sentences
+problem = "What is 2+2?"
+sentences = [
+    "Let me break this down.",
+    "First, I'll add 2 and 2.",
+    "That gives me 4.",
+    "So the answer is 4."
 ]
 
-for question in questions:
-    results = steerer.ask_batch(question, n=50, reasoning_level="low")
-    # Analyze results...
-
-steerer.close()
-```
-
-### Workflow 3: Single Question, Many Samples, Compute Statistics
-
-```python
-steerer = SteeredModel(..., alpha=0)
-
-results = steerer.ask_batch(
-    question="What is 2+2?",
-    n=100,  # Good sample size for statistics
-    reasoning_level="low",
-    max_tokens=3000,
+# Resample from position 2 (after "First, I'll add 2 and 2.")
+# This anchors sentences 0-1, then generates from sentence 2 onwards
+results = steerer.resample_from_position(
+    problem=problem,
+    sentences=sentences,
+    position=2,
+    n=100,  # Generate 100 samples
     temperature=0.8
 )
 
-# Compute statistics on reasoning
-cheat_rate = sum(1 for r in results if 'cheat' in r['reasoning'].lower()) / len(results)
-mean_tokens = sum(r['n_tokens'] for r in results) / len(results)
-truncation_rate = sum(r['is_truncated'] for r in results) / len(results)
-
-print(f"Cheat rate: {cheat_rate*100:.1f}%")
-print(f"Mean tokens: {mean_tokens:.1f}")
-print(f"Truncation rate: {truncation_rate*100:.1f}%")
-
-steerer.close()
+# Analyze: How often does steering affect the final answer?
+correct = sum(1 for r in results if "4" in r['final_answer'])
+print(f"Accuracy: {correct}/100")
 ```
 
-### Workflow 4: Evaluate with Different Reasoning Levels
+## Batch Generation
+
+For statistics, generate many samples from the same prefill point:
 
 ```python
-steerer = SteeredModel(..., alpha=0)
+# Generate 100 continuations from the same starting point
+results = steerer.generate_batch_with_prefill(
+    problem="What is 2+2?",
+    prefill="Let me calculate.",
+    n=100,
+    temperature=0.8
+)
 
-question = "Solve this complex problem..."
-
-for level in ["minimal", "low", "medium", "high"]:
-    result = steerer.ask(question, reasoning_level=level)
-
-    print(f"\nReasoning level: {level}")
-    print(f"Reasoning length: {len(result['reasoning'])} chars")
-    print(f"Tokens: {result['n_tokens']}")
-
-steerer.close()
+# Each result has: reasoning, continuation, final_answer, n_tokens, hit_eos, is_truncated
+for r in results:
+    print(r['continuation'])  # What the model generated
 ```
 
-## How Steering Works
+## How It Works
 
-### Alpha Values
+1. **Builds Harmony prompt** with your prefill, ending mid-stream (no closing tag)
+2. **Calculates token length** of the prefill
+3. **Sets steering to start AFTER** that token position
+4. **Generates continuation** with steering applied only to new tokens
+5. **Returns both** the full reasoning (prefill + continuation) and just the continuation
 
-- **alpha = 0**: No steering (baseline)
-- **alpha > 0**: Steer toward higher cheat rates (more decisive/confident)
-- **alpha < 0**: Steer toward lower cheat rates (more uncertain/cautious)
+## Key Methods
 
-**Suggested ranges:**
-- Small effect: ±20 to ±50
-- Medium effect: ±50 to ±100
-- Strong effect: ±100 to ±200
+### `generate_with_prefill(problem, prefill, reasoning_level="low", ...)`
+Generate a single completion with prefilled reasoning.
 
-### Where Steering is Applied
+### `generate_batch_with_prefill(problem, prefill, n=100, ...)`
+Generate N completions from the same prefill point (efficient batched version).
 
-The steering vector is added to activations at:
-- **Layer**: 14 (middle-late layer)
-- **Position**: Only generated tokens (NOT the prompt)
-- **Timing**: Every forward pass during generation
+### `resample_from_position(problem, sentences, position, n=100, ...)`
+Convenience method: prefill up to sentence position K, then generate N continuations.
 
-This means the prompt encoding is unaffected, but the model's reasoning during generation is steered.
+### `set_alpha(new_alpha)`
+Change steering strength without reloading the model.
 
-## Output Format
+## Setup
 
-### Result Dictionary (from ask() or ask_batch())
-
-Each result is a dictionary with:
-
-```python
-{
-    'reasoning': str,       # The model's reasoning (clean, no Harmony tags)
-    'final_answer': str,    # The final answer (clean, no Harmony tags)
-    'text': str,           # Full raw output (with Harmony tags, if needed)
-    'n_tokens': int,       # Number of tokens generated
-    'hit_eos': bool,       # True if generation ended naturally (hit EOS token)
-    'is_truncated': bool   # True if generation hit max_tokens limit
-}
-```
-
-## Customizing Behavior Detection
-
-The example uses simple string matching:
-
-```python
-def simple_cheat_detect(text):
-    """Detect 'expected.json' mentions."""
-    if '<|channel|>final<|message|>' in text:
-        idx = text.find('<|channel|>final<|message|>')
-        code_section = text[idx:]
-    else:
-        code_section = text
-    return 'expected.json' in code_section.lower()
-```
-
-**Customize this for your needs:**
-- AST parsing for code analysis
-- Regex patterns for specific behaviors
-- LLM judge via API
-- Multiple detection criteria
-
-## Troubleshooting
-
-### Import Error: "No module named 'steered_model'"
-
-**Solution**: Make sure you're running from the directory containing the steered model files:
 ```bash
-python your_script.py
+pip install transformers accelerate
 ```
 
-### CUDA Out of Memory
+Model location: `/workspace/gpt-oss-20b`
 
-**Solution**: Model requires ~27.5 GB GPU memory. Ensure no other processes are using the GPU:
-```bash
-nvidia-smi
-# Kill other processes if needed
-```
+## Parameters
 
-### Model Loading Slow
+- `alpha = 0` - No steering (baseline)
+- `alpha > 0` - Steer in positive direction
+- `alpha < 0` - Steer in negative direction
+- `layer = None` - Multi-layer steering (uses all layers in .pt file)
+- `layer = 14` - Single-layer steering (layer 14 only)
 
-**Expected**: First load takes ~40 seconds. This is normal for a 20B parameter model.
+## Files
 
-### ValueError: Using device_map requires accelerate
-
-**Solution**: Install accelerate:
-```bash
-pip install accelerate --break-system-packages
-```
-
-### Attention Mask Warning
-
-**Expected**: The warning about attention mask is harmless and can be ignored. The model generates correctly despite the warning.
-
-## Performance Notes
-
-- **Initialization**: ~40 seconds (one-time cost)
-- **Single generation**: ~1-3 seconds (depends on length)
-- **Batch generation (n=50)**: ~60-90 seconds
-- **GPU memory**: ~27.5 GB
-
-**Tips for efficiency:**
-1. Initialize once, reuse for multiple generations
-2. Use `generate_batch()` instead of looping `generate()`
-3. Keep hook registered, just change `alpha` with `set_alpha()`
-4. Run long experiments in tmux/screen sessions
-
-## API Summary
-
-### High-Level Interface (Recommended for Evals)
-
-```python
-# Single generation
-result = steerer.ask(question, reasoning_level="low", max_tokens=3000, temperature=0.8)
-# Returns: dict with 'reasoning', 'final_answer', 'text', 'n_tokens', 'hit_eos', 'is_truncated'
-
-# Batch generation
-results = steerer.ask_batch(question, n=50, reasoning_level="low", max_tokens=3000, temperature=0.8)
-# Returns: list of dicts (same format as ask())
-```
-
-### Low-Level Interface (Advanced)
-
-```python
-# Build custom prompt
-prompt = steerer._build_harmony_prompt(problem, prefill="", reasoning_level="low")
-
-# Single generation
-result = steerer.generate(prompt, max_tokens=3000, temperature=0.8)
-
-# Batch generation
-results = steerer.generate_batch(prompt, n=50, max_tokens=3000, temperature=0.8)
-```
-
-### Other Methods
-
-```python
-steerer.set_alpha(new_alpha)  # Change steering strength
-steerer.close()               # Clean up and remove hooks
-```
+- `prefill_steered_model.py` - Main class for Thought Anchors experiments
+- `steered_model.py` - Simpler version (steers after full prompt, no prefill support)
+- `steered_model_base.py` - Shared model loading, hooks, and generation logic
+- `steering_vectors/steering_vectors_normalized.pt` - Multi-layer steering vectors
+- `steering_vectors/layer15_feature_normalized.pt` - Single-layer feature vector
