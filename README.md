@@ -4,12 +4,10 @@ Activation steering tools for language models, with support for **prefill-based 
 
 ## What's in this repo
 
-- `steered_model.py` - Basic steered model (steers all generated tokens)
-- `prefill_steered_model.py` - **Prefill-based steering** (the main focus)
-- `steered_model_base.py` - Shared base class
+- `steered_model.py` - Unified steered model with prefill support
 - `steering_vectors/` - Pre-computed steering vectors
 
-## The Key Idea: PrefillSteeredModel
+## The Key Idea: Prefill-Based Steering
 
 **Regular steering**: You give the model a question, it generates a full chain-of-thought (CoT), and steering affects ALL generated tokens.
 
@@ -30,10 +28,10 @@ This is way more precise than regular steering because you're isolating **which 
 ## Quick Start
 
 ```python
-from prefill_steered_model import PrefillSteeredModel
+from steered_model import SteeredModel
 
 # Initialize
-steerer = PrefillSteeredModel(
+steerer = SteeredModel(
     model_path="/workspace/gpt-oss-20b",
     steering_vector_path="steering_vectors/steering_vectors_normalized.pt",
     layer=None,  # Multi-layer steering
@@ -142,8 +140,6 @@ Model location: `/workspace/gpt-oss-20b`
 
 ## Files
 
-- `prefill_steered_model.py` - Main class for Thought Anchors experiments
-- `steered_model.py` - Simpler version (steers after full prompt, no prefill support)
-- `steered_model_base.py` - Shared model loading, hooks, and generation logic
+- `steered_model.py` - Unified model class supporting both regular and prefill-based steering
 - `steering_vectors/steering_vectors_normalized.pt` - Multi-layer steering vectors
 - `steering_vectors/layer15_feature_normalized.pt` - Single-layer feature vector
