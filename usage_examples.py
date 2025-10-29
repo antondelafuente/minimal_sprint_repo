@@ -223,7 +223,7 @@ if __name__ == "__main__":
     # Check if vLLM server is running
     try:
         import requests
-        response = requests.get("http://localhost:8000/health", timeout=1)
+        response = requests.get("http://localhost:8000/v1/models", timeout=1)
         print("✅ vLLM server is running\n")
     except:
         print("⚠️  Warning: vLLM server not accessible at localhost:8000")
